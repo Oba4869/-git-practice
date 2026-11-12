@@ -7,7 +7,7 @@ export default function manifest(): MetadataRoute.Manifest {
     description: "1人でも、AIの上司とチーム開発の練習試合ができる",
     start_url: "/",
     display: "standalone",
-    background_color: "#f6f4ef",
+    background_color: "#1e1e1e",
     theme_color: "#0f8b8d",
     lang: "ja",
     icons: [

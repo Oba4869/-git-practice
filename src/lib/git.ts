@@ -190,7 +190,7 @@ export function addDebugLine(r: Repo): Result {
 export function add(r: Repo): Result {
   const command = `git add ${r.fileName}`;
   const base = r.staged ?? head(r).lines;
-  if (same(r.working, base) && !r.conflict)
+  if (same(r.working, base) && !r.conflict && !(r.mergeHead && r.staged === null))
     return {
       ok: false,
       command,
@@ -351,7 +351,7 @@ export function conflictMarkers(ours: Lines, theirs: Lines, line: number): Lines
 export type Resolution = "ours" | "theirs" | "both";
 
 export function resolve(r: Repo, choice: Resolution): Result {
-  const command = "（エディタで印を消して、残す方を決める）→ git add";
+  const command = "（エディタで印を消して、残す方を決める）";
   if (!r.conflict) return { ok: false, command, error: "今はコンフリクトしていないよ。" };
   const { ours, theirs, line } = r.conflict;
   const lines = [...ours];
@@ -359,8 +359,7 @@ export function resolve(r: Repo, choice: Resolution): Result {
   if (choice === "both") lines.splice(line, 1, ours[line], theirs[line]);
   const repo = clone(r);
   repo.working = lines;
-  repo.staged = [...lines];
-  repo.conflict = null;
+  repo.conflict = null; // 印は消えた。あとは git add で「解決済み」と伝える
   return { ok: true, repo, command };
 }
 

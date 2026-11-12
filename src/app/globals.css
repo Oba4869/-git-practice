@@ -1,40 +1,34 @@
 @import "tailwindcss";
 
+/* VS Code（ダーク）風の配色 */
 :root {
-  --bg: #f6f4ef;
-  --card: #ffffff;
-  --ink: #1f2328;
-  --muted: #6b7078;
-  --line: #e2ded5;
-  --you: #0f8b8d;
-  --you-soft: #e3f3f3;
-  --boss: #e0662b;
-  --boss-soft: #fdeee5;
-  --warn-soft: #fff4dc;
-  --term: #1f2328;
-  --term-ink: #e6edf3;
-}
-
-@media (prefers-color-scheme: dark) {
-  :root {
-    --bg: #15171a;
-    --card: #1e2125;
-    --ink: #e8e6e1;
-    --muted: #9aa0a8;
-    --line: #33373d;
-    --you: #2bb3b5;
-    --you-soft: #173436;
-    --boss: #f08a52;
-    --boss-soft: #3a2519;
-    --warn-soft: #3a3019;
-    --term: #0d1013;
-    --term-ink: #e6edf3;
-  }
+  --bg: #1e1e1e;
+  --side: #252526;
+  --bar: #2d2d2d;
+  --input: #3c3c3c;
+  --hover: #2a2d2e;
+  --card: #1e1e1e;
+  --ink: #d4d4d4;
+  --muted: #8b949e;
+  --line: #3c3c3c;
+  --accent: #007acc;
+  --merge: #8957e5;
+  --you: #4ec9b0;
+  --you-soft: #1f3a36;
+  --boss: #f0883e;
+  --boss-soft: #3b2a1e;
+  --warn-soft: #3a3019;
+  --danger: #f14c4c;
+  --ours: rgba(64, 200, 174, 0.16);
+  --theirs: rgba(64, 166, 255, 0.16);
+  --term: #181818;
+  --term-ink: #cccccc;
+  color-scheme: dark;
 }
 
 @theme inline {
   --font-sans: "Hiragino Sans", "Noto Sans JP", system-ui, sans-serif;
-  --font-mono: ui-monospace, "SFMono-Regular", Menlo, monospace;
+  --font-mono: "Cascadia Code", ui-monospace, "SFMono-Regular", Menlo, monospace;
 }
 
 body {

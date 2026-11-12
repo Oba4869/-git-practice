@@ -86,11 +86,11 @@ function nextInCycle(r: Repo, needsEdit: boolean, editKey: ActionKey): ActionKey
 }
 
 const CYCLE_TEXT: Record<string, string> = {
-  edit: "まずファイルを編集してみよう",
-  debug: "デバッグ用の行を足してみよう",
-  add: "変更をステージに乗せよう（git add）",
-  commit: "ステージの内容を記録しよう（git commit）",
-  push: "記録をGitHubに送ろう（git push）",
+  edit: "エディタの2行目をクリックして編集しよう",
+  debug: "エディタの2行目をクリックして、デバッグ用の行を足そう",
+  add: "左の「変更」にある ＋ でステージに乗せよう（git add）",
+  commit: "メッセージを書いて ✓ コミットを押そう（git commit）",
+  push: "「↑ GitHubに送る」でpushしよう",
 };
 
 export const STEPS: Step[] = [
@@ -100,11 +100,11 @@ export const STEPS: Step[] = [
     intro: [
       "やあ、今日からよろしく！ 僕がチームリーダーの" + BOSS_NAME + "。",
       "さっそく最初の仕事。Issue #1「ヘッダーのタイトルを新しくする」をお願いしたいんだ。",
-      "作業はみんなの共有スペース（main）じゃなくて、自分用のコピー（ブランチ）でやるのがチームのルール。まずはブランチを作ってみて。",
+      "作業はみんなの共有スペース（main）じゃなくて、自分用のコピー（ブランチ）でやるのがチームのルール。左下を見ると、今いるのはmainだね。まずはブランチを作ってみて。",
     ],
     done: (r) => r.current !== "main",
     hint: () => "branch",
-    hintText: () => "「自分用のコピーを作る」を押してみよう",
+    hintText: () => "左の「＋ ブランチを作成」か、左下のブランチ名を押してみよう",
   },
   {
     id: "edit",
@@ -115,7 +115,7 @@ export const STEPS: Step[] = [
     ],
     done: (r) => dirty(r) || r.staged !== null || head(r).author === "you",
     hint: () => "edit",
-    hintText: () => "「ファイルを編集」でタイトルを変えよう",
+    hintText: () => "エディタの2行目（タイトル）をクリックして書き換えよう",
   },
   {
     id: "add",
@@ -157,7 +157,7 @@ export const STEPS: Step[] = [
     ],
     done: (r) => r.pr.open || r.pr.merged,
     hint: () => "pr",
-    hintText: () => "「PRを出す」を押そう",
+    hintText: () => "左の「PRを作成」を押そう",
   },
   {
     id: "review",
@@ -193,12 +193,14 @@ export const STEPS: Step[] = [
       isAncestor(r, r.remote.main, r.remote[r.pr.branch]),
     hint: (r) => {
       if (r.conflict) return "resolve";
+      if (r.mergeHead && r.staged === null) return "add";
       if (r.staged !== null) return "commit";
       if (!isAncestor(r, r.remote.main, r.branches[r.current])) return "pull";
       return "push";
     },
     hintText: (r) => {
-      if (r.conflict) return "ぶつかった行のどちらを残すか決めよう";
+      if (r.conflict) return "エディタに出ている「現在の変更を取り込む」などを押して、どちらを残すか決めよう";
+      if (r.mergeHead && r.staged === null) return "解決できたら ＋ で add して「解決済み」と伝えよう";
       if (r.staged !== null) return "解決した結果をcommitしよう";
       if (!isAncestor(r, r.remote.main, r.branches[r.current]))
         return "「mainの最新を取り込む」を押そう";
@@ -235,7 +237,7 @@ export const STEPS: Step[] = [
     hintText: (r) =>
       Object.values(r.commits).some((c) => c.revertOf)
         ? "取り消しをpushしよう"
-        : "「取り消す（revert）」でデバッグのコミットを選ぼう",
+        : "左の「コミット履歴」で、デバッグ行のコミットの Revert を押そう",
   },
   {
     id: "merge",
@@ -246,6 +248,6 @@ export const STEPS: Step[] = [
     ],
     done: (r) => r.pr.merged,
     hint: () => "merge",
-    hintText: () => "「PRをマージ」を押そう",
+    hintText: () => "左のPRにある「マージする」を押そう",
   },
 ];

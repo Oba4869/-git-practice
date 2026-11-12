@@ -13,29 +13,15 @@ import {
 import AreasView from "./AreasView";
 import TreeView from "./TreeView";
 
-type Msg =
-  | { id: number; from: "boss"; text: string; tone?: "warn" | "ai" }
-  | { id: number; from: "you"; text: string }
-  | { id: number; from: "cmd"; text: string; ok: boolean };
+// VS Code風の練習画面。
+// 左：ソース管理 / 中央：エディタ / 下：ターミナル / 右下：上司のひとこと
 
-type Sheet = null | "edit" | "commit" | "revert" | "resolve";
+type TermLine = { id: number; cmd: string; out: string; ok: boolean };
+type MobileTab = "scm" | "term" | "graph";
 
 const TITLES = ["チーム開発アプリ", "はじめてのハッカソン", "🚀 チーム開発アプリ", "🚀 はじめてのハッカソン"];
-
-const ACTIONS: { key: ActionKey; label: string; cmd: string; from: number; only?: number[] }[] = [
-  { key: "branch", label: "自分用のコピーを作る", cmd: "git switch -c", from: 0 },
-  { key: "edit", label: "ファイルを編集", cmd: "エディタ", from: 0 },
-  { key: "debug", label: "デバッグ行を足す", cmd: "エディタ", from: 8, only: [8] },
-  { key: "add", label: "ステージに乗せる", cmd: "git add", from: 1 },
-  { key: "commit", label: "記録する", cmd: "git commit", from: 1 },
-  { key: "push", label: "GitHubに送る", cmd: "git push", from: 1 },
-  { key: "pr", label: "PRを出す", cmd: "GitHub", from: 5 },
-  { key: "pull", label: "mainの最新を取り込む", cmd: "git pull origin main", from: 7 },
-  { key: "revert", label: "取り消す", cmd: "git revert", from: 9 },
-  { key: "merge", label: "PRをマージ", cmd: "GitHub", from: 10 },
-];
-
 const ZUKAN_KEY = "jiko-zukan-v1";
+const REPO_URL = "github.com/team/hackathon-app";
 
 function loadZukan(): AccidentId[] {
   try {
@@ -54,51 +40,79 @@ function saveZukan(ids: AccidentId[]) {
 
 let nextId = 1;
 
+// 本物のgitっぽい出力
+function gitOutput(key: ActionKey | "resolve", before: G.Repo, res: G.Result): string {
+  if (!res.ok) return res.error;
+  const r = res.repo;
+  switch (key) {
+    case "branch":
+      return `Switched to a new branch '${r.current}'`;
+    case "commit": {
+      const h = G.head(r);
+      return `[${r.current} ${h.id}] ${h.message}\n 1 file changed`;
+    }
+    case "push":
+      return before.remote[before.current]
+        ? `To ${REPO_URL}.git\n   ${before.remote[before.current]}..${r.remote[r.current]}  ${r.current} -> ${r.current}`
+        : `To ${REPO_URL}.git\n * [new branch]      ${r.current} -> ${r.current}`;
+    case "pull":
+      return res.note === "CONFLICT"
+        ? `CONFLICT (content): Merge conflict in ${r.fileName}\nAutomatic merge failed; fix conflicts and then commit the result.`
+        : "Merge made by the 'ort' strategy.";
+    case "revert":
+      return `[${r.current} ${G.head(r).id}] ${G.head(r).message}`;
+    case "pr":
+      return `Pull request #1 を作成しました（${r.pr.branch} → main）`;
+    case "merge":
+      return "Pull request #1 をmainにマージしました";
+    default:
+      return "";
+  }
+}
+
 export default function Game() {
   const [repo, setRepo] = useState<G.Repo>(() => G.initRepo());
   const [step, setStep] = useState(0);
-  const [msgs, setMsgs] = useState<Msg[]>([]);
-  const [sheet, setSheet] = useState<Sheet>(null);
+  const [boss, setBoss] = useState<{ lines: string[]; tone: "normal" | "warn" | "ai" }>({ lines: [], tone: "normal" });
+  const [term, setTerm] = useState<TermLine[]>([]);
   const [showHint, setShowHint] = useState(false);
-  const [showViz, setShowViz] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
+  const [commitMsg, setCommitMsg] = useState("");
   const [accidents, setAccidents] = useState<AccidentId[]>([]);
   const [finished, setFinished] = useState(false);
+  const [finalWord, setFinalWord] = useState<string | null>(null);
+  const [asking, setAsking] = useState(false);
   const [question, setQuestion] = useState("");
   const [thinking, setThinking] = useState(false);
-  const [commitMsg, setCommitMsg] = useState("");
-  const [finalWord, setFinalWord] = useState<string | null>(null);
-  const chatEnd = useRef<HTMLDivElement>(null);
+  const [mobileTab, setMobileTab] = useState<MobileTab>("scm");
   const timers = useRef<number[]>([]);
   const queueEnd = useRef(0);
   const started = useRef(false);
+  const termEnd = useRef<HTMLDivElement>(null);
 
-  const say = (text: string, tone?: "warn" | "ai") =>
-    setMsgs((m) => [...m, { id: nextId++, from: "boss", text, tone }]);
-
-  // セリフは1本の列に並べて、順番が入れ替わらないようにする
-  const sayLater = (lines: string[], startDelay = 300) => {
-    let at = Math.max(Date.now() + startDelay, queueEnd.current);
+  // 上司のセリフ：新しいできごとごとに吹き出しを入れ替え、1行ずつ出す
+  const speak = (lines: string[], tone: "normal" | "warn" | "ai" = "normal", delay = 250) => {
+    timers.current.forEach(clearTimeout);
+    timers.current = [];
+    setBoss({ lines: [], tone });
+    let at = delay;
     for (const line of lines) {
-      const t = window.setTimeout(() => say(line), at - Date.now());
+      const t = window.setTimeout(() => setBoss((b) => ({ ...b, lines: [...b.lines, line] })), at);
       timers.current.push(t);
-      at += 650;
+      at += 700;
     }
-    queueEnd.current = at;
+    queueEnd.current = Date.now() + at;
   };
 
-  // 最初のセリフ
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    sayLater(STEPS[0].intro, 200);
-    const t = timers.current;
-    return () => t.forEach(clearTimeout);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    speak(STEPS[0].intro);
   }, []);
 
   useEffect(() => {
-    chatEnd.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-  }, [msgs, thinking]);
+    termEnd.current?.scrollIntoView({ block: "end" });
+  }, [term]);
 
   const addAccident = (id: AccidentId) => {
     setAccidents((a) => (a.includes(id) ? a : [...a, id]));
@@ -106,23 +120,18 @@ export default function Game() {
     if (!z.includes(id)) saveZukan([...z, id]);
   };
 
+  const log = (cmd: string, out: string, ok: boolean) =>
+    setTerm((t) => [...t, { id: nextId++, cmd, out, ok }]);
+
   // 操作結果を反映して、シナリオを進める
-  const apply = (res: G.Result) => {
-    setMsgs((m) => [...m, { id: nextId++, from: "cmd", text: res.command, ok: res.ok }]);
+  const apply = (key: ActionKey | "resolve", res: G.Result, extra?: string[]) => {
+    log(res.command, gitOutput(key, repo, res), res.ok);
     setShowHint(false);
     if (!res.ok) {
-      say(res.error, "warn");
+      speak([res.error], "warn", 0);
       return;
     }
     let r = res.repo;
-    if (res.note === "CONFLICT") {
-      say("出た、コンフリクト！ 同じ行を2人で書き換えたから、Gitがどっちを残すか決められなかったんだ。");
-      say("ファイルに <<<<<<< と >>>>>>> の印が入ってる。間にあるのがぶつかった2つの変更。どっちを残すか選んでみて。");
-      setSheet("resolve");
-    } else if (res.note) {
-      say(res.note);
-    }
-
     let i = step;
     while (i < STEPS.length && STEPS[i].done(r)) {
       i++;
@@ -132,73 +141,62 @@ export default function Game() {
         if (s.accident) addAccident(s.accident);
       }
     }
-    // 一気に複数ステップ進んだときは、着いたステップのセリフだけ言う
-    const intros = i < STEPS.length ? STEPS[i].intro : [];
     setRepo(r);
+
+    const lines: string[] = [];
+    if (res.note === "CONFLICT") {
+      lines.push(
+        "出た、コンフリクト！ 同じ行を2人で書き換えたから、Gitがどっちを残すか決められなかったんだ。",
+        "エディタを見て。<<<<<<< と >>>>>>> の間がぶつかった場所。上に出ている「現在の変更を取り込む」などのボタンで選べるよ。VS Codeでも同じボタンが出るんだ。",
+      );
+      setMobileTab("scm");
+    } else if (res.note) lines.push(res.note);
+    if (extra) lines.push(...extra);
+
     if (i !== step) {
       setStep(i);
       if (i >= STEPS.length) {
-        sayLater([
+        lines.push(
           "マージ完了！ おつかれさま！！",
-          "Issueを受けて、ブランチ、commit、push、PR、レビュー対応、コンフリクト、取り消し、マージ。チーム開発を1周できたよ。",
-        ]);
-        window.setTimeout(() => setFinished(true), 1900);
+          "Issue、ブランチ、commit、push、PR、レビュー対応、コンフリクト、取り消し、マージ。チーム開発を1周できたよ。",
+        );
+        window.setTimeout(() => setFinished(true), 700 * lines.length + 600);
         fetchFinalWord(r);
       } else {
-        sayLater(intros, 500);
+        lines.push(...STEPS[i].intro);
       }
     }
+    if (lines.length) speak(lines);
   };
 
-  const onAction = (key: ActionKey) => {
-    switch (key) {
-      case "branch":
-        return apply(G.switchCreate(repo, BRANCH_NAME));
-      case "edit":
-        return setSheet("edit");
-      case "debug":
-        return apply(G.addDebugLine(repo));
-      case "add":
-        return apply(G.add(repo));
-      case "commit": {
-        const s = STEPS[step]?.id;
-        setCommitMsg(
-          s === "review"
-            ? "タイトルに🚀を追加"
-            : s === "conflict"
-              ? "mainの変更を取り込んでコンフリクトを解決"
-              : s === "oops"
-                ? "デバッグ用の行を追加"
-                : "ヘッダーのタイトルを変更",
-        );
-        return setSheet("commit");
-      }
-      case "push":
-        return apply(repo.current === "main" ? G.pushMainDirect() : G.push(repo));
-      case "pr":
-        return apply(G.openPR(repo));
-      case "pull":
-        return apply(G.pullMain(repo));
-      case "resolve":
-        return setSheet("resolve");
-      case "revert":
-        return setSheet("revert");
-      case "merge":
-        return apply(G.mergePR(repo));
-    }
-  };
-
-  const onEdit = (title: string) => {
-    setSheet(null);
-    const res = G.edit(repo, title);
-    if (res.ok && repo.current === "main" && step === 0) {
-      apply(res);
+  const editTo = (title: string | "debug") => {
+    setEditOpen(false);
+    const res = title === "debug" ? G.addDebugLine(repo) : G.edit(repo, title);
+    if (res.ok && repo.current === "main" && step === 0 && title !== "debug") {
       addAccident("main-direct");
-      say("あ、ちょっと待って！ 今いるのはmain（みんなの共有スペース）だよ。", "warn");
-      say("でも大丈夫。このまま「自分用のコピーを作る」を押せば、今の変更ごと新しいブランチに持っていけるから。");
+      apply("edit", res, [
+        "あ、ちょっと待って！ 今いるのはmain（みんなの共有スペース）だよ。左下のステータスバーを見てみて。",
+        "でも大丈夫。このまま「ブランチを作成」を押せば、今の変更ごと新しいブランチに持っていけるから。",
+      ]);
       return;
     }
-    apply(res);
+    apply(title === "debug" ? "debug" : "edit", res);
+  };
+
+  const doCommit = () => {
+    const s = STEPS[step]?.id;
+    const fallback =
+      s === "review"
+        ? "タイトルに🚀を追加"
+        : s === "conflict"
+          ? "mainの変更を取り込んでコンフリクトを解決"
+          : s === "oops"
+            ? "デバッグ用の行を追加"
+            : "ヘッダーのタイトルを変更";
+    const msg = commitMsg.trim() || fallback;
+    const res = G.commit(repo, msg);
+    if (res.ok) setCommitMsg("");
+    apply("commit", res);
   };
 
   const context = () =>
@@ -208,24 +206,21 @@ export default function Game() {
     const q = question.trim();
     if (!q || thinking) return;
     setQuestion("");
-    setMsgs((m) => [...m, { id: nextId++, from: "you", text: q }]);
     setThinking(true);
-    const history = [...msgs, { id: 0, from: "you" as const, text: q }]
-      .filter((m) => m.from !== "cmd")
-      .slice(-8)
-      .map((m) => ({ role: m.from === "you" ? ("user" as const) : ("assistant" as const), content: m.text }));
+    setBoss({ lines: [`「${q}」だね、ちょっと待って…`], tone: "ai" });
     try {
       const res = await fetch("/api/boss", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: history, context: context() }),
+        body: JSON.stringify({ messages: [{ role: "user", content: q }], context: context() }),
       });
       const data = await res.json();
-      say(data.reply, "ai");
+      speak([data.reply], "ai", 0);
     } catch {
-      say("ごめん、うまく聞き取れなかった。もう一回送ってくれる？", "warn");
+      speak(["ごめん、うまく聞き取れなかった。もう一回送ってくれる？"], "warn", 0);
     } finally {
       setThinking(false);
+      setAsking(false);
     }
   };
 
@@ -236,11 +231,7 @@ export default function Game() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           messages: [
-            {
-              role: "user",
-              content:
-                "練習試合が終わりました。今日の練習を振り返って、次の本番ハッカソンに向けた一言をください（2文以内）。",
-            },
+            { role: "user", content: "練習試合が終わりました。次の本番ハッカソンに向けた一言をください（2文以内）。" },
           ],
           context: `練習試合終了。\n${G.summarize(r)}`,
         }),
@@ -253,280 +244,405 @@ export default function Game() {
   };
 
   const restart = () => {
-    timers.current.forEach(clearTimeout);
-    timers.current = [];
-    queueEnd.current = 0;
     setRepo(G.initRepo());
     setStep(0);
-    setMsgs([]);
-    setSheet(null);
+    setTerm([]);
     setAccidents([]);
     setFinished(false);
     setFinalWord(null);
     setShowHint(false);
-    sayLater(STEPS[0].intro, 200);
+    setEditOpen(false);
+    setCommitMsg("");
+    speak(STEPS[0].intro);
   };
 
+  // ---- 表示用の値 ----
   const current = STEPS[step];
-  const hintKey: ActionKey | null = current
-    ? repo.conflict
-      ? "resolve"
-      : current.hint(repo)
-    : null;
-  const visible = ACTIONS.filter((a) => step >= a.from && (!a.only || a.only.includes(step)));
+  const hintKey: ActionKey | null = current ? (repo.conflict ? "resolve" : current.hint(repo)) : null;
+  const glow = (k: ActionKey) => showHint && hintKey === k;
+  const h = G.head(repo);
+  const same = (a: string[] | null, b: string[] | null) => JSON.stringify(a) === JSON.stringify(b);
+  const unstaged = !!repo.conflict || !same(repo.working, repo.staged ?? h.lines) || (!!repo.mergeHead && repo.staged === null);
+  const staged = repo.staged !== null;
+  const ahead = repo.remote[repo.current] !== repo.branches[repo.current];
+  const behindMain = repo.current !== "main" && !G.isAncestor(repo, repo.remote.main, repo.branches[repo.current]);
   const myCommits = repo.order
     .map((id) => repo.commits[id])
     .filter((c) => c.author === "you" && !c.revertOf && c.parents.length === 1 && G.isAncestor(repo, c.id, repo.branches[repo.current]))
     .reverse();
+  const conflictStart = repo.working.findIndex((l) => l.startsWith("<<<<<<<"));
+  const isMarker = (l: string) => l.startsWith("<<<<<<<") || l.startsWith("=======") || l.startsWith(">>>>>>>");
+  const editLine = 1;
+
+  // ---- 部品 ----
+  const glowCls = "ring-2 ring-[var(--boss)] shadow-[0_0_0_4px_rgba(240,136,62,0.25)]";
+
+  const SourceControl = (
+    <div className="space-y-4 p-3 text-[13px]">
+      <div>
+        <p className="mb-2 text-[11px] font-bold tracking-wide text-[var(--muted)]">ソース管理</p>
+        <input
+          value={commitMsg}
+          onChange={(e) => setCommitMsg(e.target.value)}
+          onKeyDown={(e) => e.key === "Enter" && doCommit()}
+          placeholder="メッセージ（例：ヘッダーのタイトルを変更）"
+          className="w-full rounded border border-[var(--line)] bg-[var(--input)] px-2 py-1.5 text-[13px] outline-none focus:border-[var(--accent)]"
+        />
+        <button
+          onClick={doCommit}
+          className={`mt-2 w-full rounded bg-[var(--accent)] py-1.5 font-bold text-white ${glow("commit") ? glowCls : ""}`}
+        >
+          ✓ コミット <span className="font-mono text-[11px] font-normal opacity-80">git commit</span>
+        </button>
+        <button
+          onClick={() => apply("push", repo.current === "main" ? G.pushMainDirect() : G.push(repo))}
+          className={`mt-2 w-full rounded border border-[var(--line)] py-1.5 ${glow("push") ? glowCls : ""}`}
+        >
+          ↑ GitHubに送る <span className="font-mono text-[11px] text-[var(--muted)]">git push</span>
+          {ahead && repo.current !== "main" && <span className="ml-1 rounded bg-[var(--accent)] px-1 text-[10px] text-white">未送信</span>}
+        </button>
+      </div>
+
+      <div>
+        <p className="mb-1 text-[11px] font-bold text-[var(--muted)]">ステージ済みの変更（{staged ? 1 : 0}）</p>
+        {staged && (
+          <div className="flex items-center gap-2 rounded px-2 py-1 hover:bg-[var(--hover)]">
+            <span>📄 {repo.fileName}</span>
+            <span className="ml-auto font-mono text-[11px] text-[var(--you)]">M</span>
+          </div>
+        )}
+        <p className="mb-1 mt-2 text-[11px] font-bold text-[var(--muted)]">変更（{unstaged ? 1 : 0}）</p>
+        {unstaged && (
+          <div className="flex items-center gap-2 rounded px-2 py-1 hover:bg-[var(--hover)]">
+            <span>📄 {repo.fileName}</span>
+            <span className={`ml-auto font-mono text-[11px] ${repo.conflict ? "text-[var(--danger)]" : "text-[var(--boss)]"}`}>
+              {repo.conflict || repo.mergeHead ? "C" : "M"}
+            </span>
+            <button
+              title="ステージに乗せる（git add）"
+              onClick={() => apply("add", G.add(repo))}
+              className={`rounded border border-[var(--line)] px-2 font-bold ${glow("add") ? glowCls : ""}`}
+            >
+              ＋
+            </button>
+          </div>
+        )}
+        {!unstaged && !staged && <p className="px-2 text-[12px] text-[var(--muted)]">変更はありません</p>}
+        <p className="mt-1 px-2 text-[11px] text-[var(--muted)]">＋ を押すと git add（ステージに乗せる）</p>
+      </div>
+
+      <div>
+        <p className="mb-1 text-[11px] font-bold text-[var(--muted)]">ブランチ</p>
+        <p className="px-2 font-mono">⎇ {repo.current}</p>
+        <button
+          onClick={() => apply("branch", G.switchCreate(repo, BRANCH_NAME))}
+          className={`mt-2 w-full rounded border border-[var(--line)] py-1.5 ${glow("branch") ? glowCls : ""}`}
+        >
+          ＋ ブランチを作成 <span className="font-mono text-[11px] text-[var(--muted)]">git switch -c</span>
+        </button>
+        {step >= 7 && (
+          <button
+            onClick={() => apply("pull", G.pullMain(repo))}
+            className={`mt-2 w-full rounded border border-[var(--line)] py-1.5 ${glow("pull") ? glowCls : ""}`}
+          >
+            ↓ mainの最新を取り込む <span className="font-mono text-[11px] text-[var(--muted)]">git pull</span>
+            {behindMain && <span className="ml-1 rounded bg-[var(--boss)] px-1 text-[10px] text-white">遅れ</span>}
+          </button>
+        )}
+      </div>
+
+      {step >= 5 && (
+        <div>
+          <p className="mb-1 text-[11px] font-bold text-[var(--muted)]">GitHub プルリクエスト</p>
+          {!repo.pr.open && !repo.pr.merged ? (
+            <button
+              onClick={() => apply("pr", G.openPR(repo))}
+              className={`w-full rounded border border-[var(--line)] py-1.5 ${glow("pr") ? glowCls : ""}`}
+            >
+              PRを作成 <span className="text-[11px] text-[var(--muted)]">{repo.current} → main</span>
+            </button>
+          ) : (
+            <div className="rounded border border-[var(--line)] p-2">
+              <p>
+                #1 {repo.commits[repo.order.find((id) => repo.commits[id].author === "you") ?? "c0"].message}
+              </p>
+              <p className="text-[11px] text-[var(--muted)]">
+                {repo.pr.merged ? "✅ マージ済み" : behindMain ? "⚠ mainとぶつかっています" : "🟢 オープン"}
+              </p>
+              {step >= 10 && repo.pr.open && (
+                <button
+                  onClick={() => apply("merge", G.mergePR(repo))}
+                  className={`mt-2 w-full rounded bg-[var(--merge)] py-1.5 font-bold text-white ${glow("merge") ? glowCls : ""}`}
+                >
+                  マージする
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {step >= 9 && (
+        <div>
+          <p className="mb-1 text-[11px] font-bold text-[var(--muted)]">コミット履歴（取り消し）</p>
+          {myCommits.map((c) => (
+            <div key={c.id} className="flex items-center gap-2 rounded px-2 py-1 hover:bg-[var(--hover)]">
+              <span className="font-mono text-[11px] text-[var(--muted)]">{c.id}</span>
+              <span className="truncate">{c.message}</span>
+              <button
+                onClick={() => apply("revert", G.revert(repo, c.id))}
+                className={`ml-auto shrink-0 rounded border border-[var(--line)] px-2 text-[11px] ${
+                  glow("revert") && G.hasDebug(c.lines) ? glowCls : ""
+                }`}
+              >
+                Revert
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+
+  const Editor = (
+    <div className="relative font-mono text-[13px] leading-6">
+      {repo.working.map((line, i) => {
+        const marker = isMarker(line);
+        const canEdit = !repo.conflict && i === editLine;
+        return (
+          <div key={i}>
+            {repo.conflict && i === conflictStart && (
+              <div className={`flex flex-wrap gap-x-3 pl-12 text-[11px] text-[var(--muted)] ${glow("resolve") ? "rounded " + glowCls : ""}`}>
+                {(
+                  [
+                    ["ours", "現在の変更を取り込む"],
+                    ["theirs", "入力側の変更を取り込む"],
+                    ["both", "両方の変更を取り込む"],
+                  ] as const
+                ).map(([k, label]) => (
+                  <button key={k} onClick={() => apply("resolve", G.resolve(repo, k), ["印が消えたね！ 左の「変更」に出ている ＋ で add して、解決済みだとGitに伝えよう。"])} className="hover:text-[var(--accent)] hover:underline">
+                    {label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div
+              onClick={() => canEdit && setEditOpen((v) => !v)}
+              className={`flex ${canEdit ? "cursor-pointer hover:bg-[var(--hover)]" : ""} ${
+                line.startsWith("<<<<<<<") || (repo.conflict && i > conflictStart && i < repo.working.findIndex((l) => l.startsWith("=======")))
+                  ? "bg-[var(--ours)]"
+                  : ""
+              } ${
+                repo.conflict && i > repo.working.findIndex((l) => l.startsWith("=======")) && i <= repo.working.findIndex((l) => l.startsWith(">>>>>>>"))
+                  ? "bg-[var(--theirs)]"
+                  : ""
+              } ${canEdit && (glow("edit") || glow("debug")) ? glowCls : ""}`}
+            >
+              <span className="w-10 shrink-0 select-none pr-3 text-right text-[var(--muted)]">{i + 1}</span>
+              <span className={`whitespace-pre ${marker ? "text-[var(--boss)]" : ""}`}>{line}</span>
+              {canEdit && <span className="ml-auto pr-2 text-[10px] text-[var(--muted)]">✎ クリックで編集</span>}
+            </div>
+            {canEdit && editOpen && (
+              <div className="z-10 ml-10 mt-1 mb-2 w-72 rounded border border-[var(--line)] bg-[var(--side)] p-1 font-sans shadow-lg">
+                <p className="px-2 py-1 text-[11px] text-[var(--muted)]">タイトルを書き換える</p>
+                {TITLES.map((t) => (
+                  <button key={t} onClick={() => editTo(t)} className="block w-full rounded px-2 py-1.5 text-left hover:bg-[var(--accent)] hover:text-white">
+                    {t}
+                  </button>
+                ))}
+                {step === 8 && (
+                  <button onClick={() => editTo("debug")} className="block w-full rounded px-2 py-1.5 text-left hover:bg-[var(--accent)] hover:text-white">
+                    ＋ デバッグ用の行を追加する
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </div>
+  );
+
+  const Terminal = (
+    <div className="h-full overflow-y-auto p-3 font-mono text-[12px] leading-5">
+      <p className="text-[var(--muted)]">ここに、ボタンを押したときに実際に打たれるコマンドが出ます</p>
+      {term.map((t) => (
+        <div key={t.id} className="mt-1">
+          <p>
+            <span className="text-[var(--you)]">{repo.current === "main" ? "~/app (main)" : `~/app (${repo.current})`}</span> $ {t.cmd}
+          </p>
+          {t.out && <p className={`whitespace-pre-wrap ${t.ok ? "text-[var(--muted)]" : "text-[var(--danger)]"}`}>{t.out}</p>}
+        </div>
+      ))}
+      <div ref={termEnd} />
+    </div>
+  );
+
+  const BossCard = (
+    <div
+      className={`rounded-lg border bg-[var(--side)] p-3 shadow-xl ${
+        boss.tone === "warn" ? "border-[var(--boss)]" : "border-[var(--line)]"
+      }`}
+    >
+      <div className="flex items-center gap-2">
+        <div className="grid h-7 w-7 place-items-center rounded-full bg-[var(--boss)] text-[13px] font-bold text-white">ひ</div>
+        <p className="text-[12px] font-bold">{BOSS_NAME}</p>
+        {boss.tone === "ai" && <span className="rounded bg-[var(--hover)] px-1 text-[10px] text-[var(--muted)]">AI</span>}
+        <div className="ml-auto flex gap-1">
+          {current && (
+            <button onClick={() => setShowHint((v) => !v)} className="rounded px-2 py-0.5 text-[11px] text-[var(--boss)] hover:bg-[var(--hover)]">
+              💡 ヒント
+            </button>
+          )}
+          <button onClick={() => setAsking((v) => !v)} className="rounded px-2 py-0.5 text-[11px] text-[var(--muted)] hover:bg-[var(--hover)]">
+            質問する
+          </button>
+        </div>
+      </div>
+      <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto text-[13px] leading-relaxed">
+        {boss.lines.map((l, i) => (
+          <p key={i}>{l}</p>
+        ))}
+      </div>
+      {showHint && current && (
+        <p className="mt-2 rounded bg-[var(--hover)] px-2 py-1 text-[12px] text-[var(--boss)]">💡 {repo.conflict ? STEPS[step].hintText(repo) : current.hintText(repo)}</p>
+      )}
+      {asking && (
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            ask();
+          }}
+          className="mt-2 flex gap-1"
+        >
+          <input
+            autoFocus
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            placeholder="例：pushって何？"
+            className="min-w-0 flex-1 rounded border border-[var(--line)] bg-[var(--input)] px-2 py-1 text-[13px] outline-none focus:border-[var(--accent)]"
+          />
+          <button disabled={thinking} className="rounded bg-[var(--accent)] px-3 text-[12px] text-white disabled:opacity-40">
+            送る
+          </button>
+        </form>
+      )}
+    </div>
+  );
+
+  const StatusBar = (
+    <footer className="flex items-center gap-3 bg-[var(--accent)] px-3 py-0.5 text-[12px] text-white">
+      <button
+        onClick={() => repo.current === "main" && apply("branch", G.switchCreate(repo, BRANCH_NAME))}
+        className={`flex items-center gap-1 rounded px-1 hover:bg-white/15 ${repo.current === "main" && step === 0 ? "font-bold" : ""}`}
+        title={repo.current === "main" ? "クリックでブランチを作成" : ""}
+      >
+        ⎇ {repo.current}
+      </button>
+      {repo.current !== "main" && <span>{ahead ? "↑ 未送信あり" : "↑0"}</span>}
+      {repo.conflict && <span className="rounded bg-[var(--danger)] px-1">⚠ コンフリクト</span>}
+      <span className="ml-auto hidden sm:inline">{repo.fileName}</span>
+    </footer>
+  );
 
   return (
     <div className="flex h-dvh flex-col bg-[var(--bg)] text-[var(--ink)]">
-      {/* ヘッダー */}
-      <header className="flex items-center gap-3 border-b border-[var(--line)] bg-[var(--card)] px-4 py-2">
-        <div className="min-w-0">
-          <p className="text-[11px] text-[var(--muted)] leading-none">チーム開発の練習試合（仮）</p>
-          <p className="truncate text-sm font-bold">
-            {current ? `${step + 1}/${STEPS.length}　${current.label}` : "試合終了"}
-          </p>
+      {/* タイトルバー */}
+      <header className="flex items-center gap-3 border-b border-[var(--line)] bg-[var(--bar)] px-3 py-1.5">
+        <div className="flex gap-1.5">
+          <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
+          <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
+          <span className="h-3 w-3 rounded-full bg-[#28c840]" />
         </div>
-        <div className="ml-auto flex items-center gap-2">
-          <button
-            onClick={() => setShowViz((v) => !v)}
-            className="rounded-full border border-[var(--line)] px-3 py-1 text-xs md:hidden"
-          >
-            {showViz ? "チャット" : "図を見る"}
-          </button>
-          <button onClick={restart} className="rounded-full border border-[var(--line)] px-3 py-1 text-xs">
-            やり直す
-          </button>
+        <p className="min-w-0 truncate text-[12px]">
+          <span className="text-[var(--muted)]">練習試合（仮）—</span> {current ? `${step + 1}/${STEPS.length} ${current.label}` : "試合終了"}
+        </p>
+        <div className="ml-auto hidden h-1.5 w-40 overflow-hidden rounded bg-[var(--line)] sm:block">
+          <div className="h-full bg-[var(--you)] transition-all duration-500" style={{ width: `${(Math.min(step, STEPS.length) / STEPS.length) * 100}%` }} />
         </div>
+        <button onClick={restart} className="ml-auto rounded border border-[var(--line)] px-2 py-0.5 text-[11px] sm:ml-0">
+          やり直す
+        </button>
       </header>
-      <div className="h-1 bg-[var(--line)]">
-        <div
-          className="h-1 bg-[var(--you)] transition-all duration-500"
-          style={{ width: `${(Math.min(step, STEPS.length) / STEPS.length) * 100}%` }}
-        />
+
+      {/* PC */}
+      <div className="hidden min-h-0 flex-1 md:flex">
+        <nav className="flex w-12 flex-col items-center gap-4 border-r border-[var(--line)] bg-[var(--bar)] pt-3 text-lg text-[var(--muted)]">
+          <span title="エクスプローラー">📄</span>
+          <span title="ソース管理" className="relative border-l-2 border-white pl-2 text-white">
+            ⑂
+            {(unstaged || staged) && (
+              <span className="absolute -right-2 -top-1 rounded-full bg-[var(--accent)] px-1 text-[9px]">{(unstaged ? 1 : 0) + (staged ? 1 : 0)}</span>
+            )}
+          </span>
+        </nav>
+        <aside className="w-[300px] shrink-0 overflow-y-auto border-r border-[var(--line)] bg-[var(--side)]">
+          {SourceControl}
+          <div className="border-t border-[var(--line)] p-3">
+            <p className="mb-1 text-[11px] font-bold text-[var(--muted)]">グラフ</p>
+            <TreeView repo={repo} />
+          </div>
+        </aside>
+        <section className="relative flex min-w-0 flex-1 flex-col">
+          <div className="flex border-b border-[var(--line)] bg-[var(--bar)] text-[12px]">
+            <span className="border-t-2 border-[var(--accent)] bg-[var(--bg)] px-3 py-1.5">
+              📄 {repo.fileName} {unstaged && <span className="text-[var(--boss)]">●</span>}
+            </span>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto py-2">{Editor}</div>
+          <div className="absolute bottom-[276px] right-4 w-[380px]">{BossCard}</div>
+          <div className="grid h-[260px] grid-cols-[minmax(0,1fr)_minmax(0,1fr)] border-t border-[var(--line)] bg-[var(--term)]">
+            <div className="flex min-h-0 flex-col border-r border-[var(--line)]">
+              <p className="border-b border-[var(--line)] px-3 py-1 text-[11px] font-bold text-[var(--muted)]">ターミナル</p>
+              <div className="min-h-0 flex-1">{Terminal}</div>
+            </div>
+            <div className="min-h-0 overflow-y-auto p-3">
+              <p className="mb-2 text-[11px] font-bold text-[var(--muted)]">ファイルの居場所</p>
+              <AreasView repo={repo} />
+            </div>
+          </div>
+        </section>
       </div>
 
-      <main className="grid min-h-0 flex-1 grid-rows-[minmax(0,1fr)_auto] md:grid-rows-1 md:grid-cols-[minmax(0,1fr)_300px_minmax(0,420px)]">
-        {/* チャット */}
-        <section className={`flex min-h-0 flex-col ${showViz ? "hidden md:flex" : "flex"}`}>
-          <div className="min-h-0 flex-1 space-y-2 overflow-y-auto px-3 py-4">
-            {msgs.map((m) =>
-              m.from === "cmd" ? (
-                <div key={m.id} className="flex justify-end">
-                  <code
-                    className={`rounded-md px-2 py-1 font-mono text-[11px] ${
-                      m.ok ? "bg-[var(--term)] text-[var(--term-ink)]" : "bg-[var(--term)] text-[var(--boss)] line-through decoration-1"
-                    }`}
-                  >
-                    $ {m.text}
-                  </code>
-                </div>
-              ) : m.from === "you" ? (
-                <div key={m.id} className="flex justify-end">
-                  <p className="max-w-[80%] rounded-2xl rounded-br-sm bg-[var(--you)] px-3 py-2 text-sm text-white">{m.text}</p>
-                </div>
-              ) : (
-                <div key={m.id} className="flex items-end gap-2">
-                  <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--boss-soft)] text-sm font-bold text-[var(--boss)]">
-                    ひ
-                  </div>
-                  <p
-                    className={`max-w-[85%] rounded-2xl rounded-bl-sm px-3 py-2 text-sm leading-relaxed ${
-                      m.tone === "warn" ? "bg-[var(--warn-soft)]" : "bg-[var(--card)] border border-[var(--line)]"
-                    }`}
-                  >
-                    {m.text}
-                    {m.tone === "ai" && <span className="ml-1 text-[10px] text-[var(--muted)]">AI</span>}
-                  </p>
-                </div>
-              ),
-            )}
-            {thinking && <p className="pl-10 text-xs text-[var(--muted)]">{BOSS_NAME}が考え中…</p>}
-            <div ref={chatEnd} />
-          </div>
-          <form
-            onSubmit={(e) => {
-              e.preventDefault();
-              ask();
-            }}
-            className="flex gap-2 border-t border-[var(--line)] bg-[var(--card)] px-3 py-2"
-          >
-            <input
-              value={question}
-              onChange={(e) => setQuestion(e.target.value)}
-              placeholder={`${BOSS_NAME}に質問する（例：pushって何？）`}
-              className="min-w-0 flex-1 rounded-full border border-[var(--line)] bg-[var(--bg)] px-3 py-2 text-sm outline-none focus:border-[var(--you)]"
-            />
-            <button disabled={thinking} className="rounded-full bg-[var(--ink)] px-4 text-sm text-[var(--card)] disabled:opacity-40">
-              送る
+      {/* スマホ */}
+      <div className="flex min-h-0 flex-1 flex-col md:hidden">
+        <div className="flex border-b border-[var(--line)] bg-[var(--bar)] text-[12px]">
+          <span className="border-t-2 border-[var(--accent)] bg-[var(--bg)] px-3 py-1.5">
+            📄 {repo.fileName} {unstaged && <span className="text-[var(--boss)]">●</span>}
+          </span>
+        </div>
+        <div className="max-h-[34%] shrink-0 overflow-y-auto py-1">{Editor}</div>
+        <div className="shrink-0 px-2 pb-2">{BossCard}</div>
+        <div className="flex border-y border-[var(--line)] bg-[var(--bar)] text-[12px]">
+          {(
+            [
+              ["scm", `ソース管理${unstaged || staged ? "●" : ""}`],
+              ["term", "ターミナル"],
+              ["graph", "居場所とグラフ"],
+            ] as const
+          ).map(([k, label]) => (
+            <button
+              key={k}
+              onClick={() => setMobileTab(k)}
+              className={`flex-1 py-2 ${mobileTab === k ? "border-b-2 border-[var(--accent)] text-white" : "text-[var(--muted)]"}`}
+            >
+              {label}
             </button>
-          </form>
-        </section>
-
-        {/* 図（スマホでは切り替え） */}
-        <section
-          className={`min-h-0 overflow-y-auto border-[var(--line)] p-4 md:order-last md:block md:border-l ${
-            showViz ? "block" : "hidden"
-          }`}
-        >
-          <h2 className="mb-2 text-xs font-bold text-[var(--muted)]">ファイルの今いる場所</h2>
-          <AreasView repo={repo} />
-          <h2 className="mb-2 mt-5 text-xs font-bold text-[var(--muted)]">コミットの履歴</h2>
-          <TreeView repo={repo} />
-          <h2 className="mb-2 mt-5 text-xs font-bold text-[var(--muted)]">{repo.fileName}</h2>
-          <pre className="overflow-x-auto rounded-lg bg-[var(--term)] p-3 font-mono text-[11px] leading-relaxed text-[var(--term-ink)]">
-            {repo.working.join("\n")}
-          </pre>
-        </section>
-
-        {/* 操作 */}
-        <section className="border-t border-[var(--line)] bg-[var(--card)] p-3 md:border-l md:border-t-0">
-          {current && (
-            <div className="mb-2 flex items-center gap-2">
-              <button
-                onClick={() => setShowHint((v) => !v)}
-                className="rounded-full bg-[var(--boss-soft)] px-3 py-1 text-xs font-bold text-[var(--boss)]"
-              >
-                💡 ヒント
-              </button>
-              {showHint && <p className="text-xs">{repo.conflict ? "ぶつかった行のどちらを残すか決めよう" : current.hintText(repo)}</p>}
+          ))}
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--side)]">
+          {mobileTab === "scm" && SourceControl}
+          {mobileTab === "term" && <div className="h-full bg-[var(--term)]">{Terminal}</div>}
+          {mobileTab === "graph" && (
+            <div className="space-y-4 p-3">
+              <AreasView repo={repo} />
+              <TreeView repo={repo} />
             </div>
           )}
-          <div className="grid grid-cols-3 gap-2 md:grid-cols-2">
-            {repo.conflict && (
-              <ActionButton
-                label="どっちを残すか決める"
-                cmd="コンフリクト解決"
-                glow
-                onClick={() => setSheet("resolve")}
-                wide
-              />
-            )}
-            {visible.map((a) => (
-              <ActionButton
-                key={a.key}
-                label={a.label}
-                cmd={a.cmd}
-                glow={showHint && hintKey === a.key}
-                onClick={() => onAction(a.key)}
-                disabled={finished}
-              />
-            ))}
-          </div>
-        </section>
-      </main>
-
-      {/* シート類 */}
-      {sheet && (
-        <div className="fixed inset-0 z-20 flex items-end justify-center bg-black/30 md:items-center" onClick={() => setSheet(null)}>
-          <div
-            className="w-full max-w-md rounded-t-2xl bg-[var(--card)] p-5 md:rounded-2xl"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {sheet === "edit" && (
-              <>
-                <h3 className="font-bold">タイトルを何にする？</h3>
-                <p className="mb-3 text-xs text-[var(--muted)]">header.html の &lt;h1&gt; を書き換えます</p>
-                <div className="grid gap-2">
-                  {TITLES.map((t) => (
-                    <button
-                      key={t}
-                      onClick={() => onEdit(t)}
-                      className="rounded-xl border border-[var(--line)] px-3 py-3 text-left text-sm hover:border-[var(--you)]"
-                    >
-                      {t}
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-            {sheet === "commit" && (
-              <form
-                onSubmit={(e) => {
-                  e.preventDefault();
-                  setSheet(null);
-                  apply(G.commit(repo, commitMsg.trim() || "変更"));
-                }}
-              >
-                <h3 className="font-bold">何をしたか一言で記録しよう</h3>
-                <p className="mb-3 text-xs text-[var(--muted)]">コミットメッセージ。あとでチームが履歴を見たときの手がかりになるよ</p>
-                <input
-                  value={commitMsg}
-                  onChange={(e) => setCommitMsg(e.target.value)}
-                  className="w-full rounded-xl border border-[var(--line)] bg-[var(--bg)] px-3 py-3 text-sm outline-none focus:border-[var(--you)]"
-                />
-                <button className="mt-3 w-full rounded-xl bg-[var(--you)] py-3 text-sm font-bold text-white">記録する（git commit）</button>
-              </form>
-            )}
-            {sheet === "revert" && (
-              <>
-                <h3 className="font-bold">どのコミットを取り消す？</h3>
-                <p className="mb-3 text-xs text-[var(--muted)]">履歴は消さずに「取り消すコミット」が追加されます</p>
-                <div className="grid gap-2">
-                  {myCommits.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={() => {
-                        setSheet(null);
-                        apply(G.revert(repo, c.id));
-                      }}
-                      className="rounded-xl border border-[var(--line)] px-3 py-3 text-left text-sm hover:border-[var(--you)]"
-                    >
-                      <span className="mr-2 font-mono text-xs text-[var(--muted)]">{c.id}</span>
-                      {c.message}
-                    </button>
-                  ))}
-                  {myCommits.length === 0 && <p className="text-sm">取り消せるコミットがまだないよ。</p>}
-                </div>
-              </>
-            )}
-            {sheet === "resolve" && repo.conflict && (
-              <>
-                <h3 className="font-bold">コンフリクト：どっちを残す？</h3>
-                <p className="mb-3 text-xs text-[var(--muted)]">印（&lt;&lt;&lt;&lt;&lt;&lt;&lt; ======= &gt;&gt;&gt;&gt;&gt;&gt;&gt;）は自動で消えます</p>
-                <pre className="mb-3 overflow-x-auto rounded-lg bg-[var(--term)] p-3 font-mono text-[11px] leading-relaxed text-[var(--term-ink)]">
-                  {repo.working.map((l, i) => (
-                    <div
-                      key={i}
-                      className={
-                        l.startsWith("<<<<<<<") || l.startsWith("=======") || l.startsWith(">>>>>>>")
-                          ? "text-[var(--boss)]"
-                          : ""
-                      }
-                    >
-                      {l}
-                    </div>
-                  ))}
-                </pre>
-                <div className="grid gap-2">
-                  {(
-                    [
-                      ["ours", "自分の変更を残す", G.titleOf(repo.conflict.ours)],
-                      ["theirs", `${BOSS_NAME}の変更を残す`, G.titleOf(repo.conflict.theirs)],
-                      ["both", "両方残す", "2行とも残す"],
-                    ] as const
-                  ).map(([key, label, sub]) => (
-                    <button
-                      key={key}
-                      onClick={() => {
-                        setSheet(null);
-                        apply(G.resolve(repo, key));
-                        say("いいね！ 印が消えて、そのままステージにも乗ったよ。あとはcommitしてpushすれば解決！");
-                      }}
-                      className="rounded-xl border border-[var(--line)] px-3 py-3 text-left text-sm hover:border-[var(--you)]"
-                    >
-                      <span className="font-bold">{label}</span>
-                      <span className="ml-2 text-xs text-[var(--muted)]">{sub}</span>
-                    </button>
-                  ))}
-                </div>
-              </>
-            )}
-          </div>
         </div>
-      )}
+      </div>
+
+      {StatusBar}
 
       {/* 試合終了 */}
       {finished && (
@@ -536,55 +652,26 @@ export default function Game() {
             <h2 className="mt-1 text-2xl font-bold">チーム開発を1周できた！</h2>
             {finalWord && (
               <div className="mt-4 flex items-start gap-2">
-                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--boss-soft)] text-sm font-bold text-[var(--boss)]">ひ</div>
-                <p className="rounded-2xl rounded-tl-sm border border-[var(--line)] bg-[var(--card)] px-3 py-2 text-sm">{finalWord}</p>
+                <div className="grid h-8 w-8 shrink-0 place-items-center rounded-full bg-[var(--boss)] text-sm font-bold text-white">ひ</div>
+                <p className="rounded-lg border border-[var(--line)] bg-[var(--side)] px-3 py-2 text-sm">{finalWord}</p>
               </div>
             )}
             <h3 className="mt-6 text-sm font-bold">今回の事故（事故図鑑に追加）</h3>
             <div className="mt-2 grid gap-3">
               {accidents.map((id) => (
-                <div key={id} className="rounded-xl border border-[var(--line)] bg-[var(--card)] p-4">
+                <div key={id} className="rounded-lg border border-[var(--line)] bg-[var(--side)] p-4">
                   <p className="font-bold">✅ {ACCIDENTS[id].title}</p>
                   <p className="mt-1 text-sm">{ACCIDENTS[id].lesson}</p>
                   <p className="mt-2 text-xs text-[var(--muted)]">本番のVS Codeなら：{ACCIDENTS[id].vscode}</p>
                 </div>
               ))}
             </div>
-            <button onClick={restart} className="mt-6 w-full rounded-xl bg-[var(--you)] py-3 font-bold text-white">
+            <button onClick={restart} className="mt-6 w-full rounded bg-[var(--accent)] py-3 font-bold text-white">
               もう一回練習する
             </button>
           </div>
         </div>
       )}
     </div>
-  );
-}
-
-function ActionButton({
-  label,
-  cmd,
-  onClick,
-  glow,
-  disabled,
-  wide,
-}: {
-  label: string;
-  cmd: string;
-  onClick: () => void;
-  glow?: boolean;
-  disabled?: boolean;
-  wide?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`rounded-xl border px-2 py-2 text-left transition active:scale-[0.97] disabled:opacity-40 ${
-        wide ? "col-span-3 md:col-span-2" : ""
-      } ${glow ? "border-[var(--boss)] bg-[var(--boss-soft)] ring-2 ring-[var(--boss)]/40 shadow-md" : "border-[var(--line)] bg-[var(--bg)]"}`}
-    >
-      <span className="block text-[13px] font-bold leading-tight">{label}</span>
-      <span className="block font-mono text-[10px] text-[var(--muted)]">{cmd}</span>
-    </button>
   );
 }

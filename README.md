@@ -3,6 +3,10 @@
 1人でも、AIの上司「ひらたさん」とチーム開発の練習試合ができるWebアプリ。
 本番で事故る前に、AIと事故っておこう。
 
+画面はVS Code風。左のソース管理（＋でadd、✓でcommit、↑でpush）、中央のエディタ、下のターミナル、
+右下に上司のひとことが出る。練習した操作がそのまま本番のVS Codeで使える。
+スマホでは「エディタ → 上司 → ソース管理／ターミナル／図」のタブ構成になる。
+
 ## 1試合の流れ（10〜15分）
 1. 仕事を受ける → 自分用のコピー（ブランチ）を作る（mainで編集すると上司が止めてくれる）
 2. ファイルを編集 → add → commit → push
@@ -26,7 +30,7 @@ APIキーは、さくらのクラウドのコントロールパネルで「さ�
 | --- | --- |
 | `src/lib/git.ts` | 練習用の簡易Gitエンジン（1ファイルだけ扱う。本物のGitの前提条件とエラーを再現） |
 | `src/lib/scenario.ts` | 1試合のシナリオ。進行は「操作」ではなく「状態」で判定する |
-| `src/components/Game.tsx` | 画面全体（チャット・操作・図） |
+| `src/components/Game.tsx` | 画面全体（ソース管理・エディタ・ターミナル・上司・ステータスバー） |
 | `src/components/AreasView.tsx` | 作業場 → ステージ → PCの履歴 → GitHub の図 |
 | `src/components/TreeView.tsx` | コミットツリーのSVG |
 | `src/app/api/boss/route.ts` | 上司AI（さくらのAI Engine、OpenAI互換）。APIキーはサーバー側だけで使う |
