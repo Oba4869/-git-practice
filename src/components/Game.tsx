@@ -85,6 +85,7 @@ export default function Game() {
   const [question, setQuestion] = useState("");
   const [thinking, setThinking] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("scm");
+  const [bossOpen, setBossOpen] = useState(true);
   const timers = useRef<number[]>([]);
   const queueEnd = useRef(0);
   const started = useRef(false);
@@ -95,6 +96,7 @@ export default function Game() {
     timers.current.forEach(clearTimeout);
     timers.current = [];
     setBoss({ lines: [], tone });
+    setBossOpen(true);
     let at = delay;
     for (const line of lines) {
       const t = window.setTimeout(() => setBoss((b) => ({ ...b, lines: [...b.lines, line] })), at);
@@ -485,25 +487,36 @@ export default function Game() {
       }`}
     >
       <div className="flex items-center gap-2">
-        <div className="grid h-7 w-7 place-items-center rounded-full bg-[var(--boss)] text-[13px] font-bold text-white">ひ</div>
-        <p className="text-[12px] font-bold">{BOSS_NAME}</p>
+        <button
+          onClick={() => setBossOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
+          aria-expanded={bossOpen}
+          title={bossOpen ? "たたむ" : "ひらく"}
+        >
+          <span className="grid h-7 w-7 shrink-0 place-items-center rounded-full bg-[var(--boss)] text-[13px] font-bold text-white">ひ</span>
+          <span className="shrink-0 text-[12px] font-bold">{BOSS_NAME}</span>
+          {!bossOpen && <span className="min-w-0 truncate text-[12px] text-[var(--muted)]">{boss.lines.at(-1)}</span>}
+          <span className="shrink-0 text-[11px] text-[var(--muted)]">{bossOpen ? "▾" : "▸"}</span>
+        </button>
         {boss.tone === "ai" && <span className="rounded bg-[var(--hover)] px-1 text-[10px] text-[var(--muted)]">AI</span>}
-        <div className="ml-auto flex gap-1">
+        <div className="flex shrink-0 gap-1">
           {current && (
-            <button onClick={() => setShowHint((v) => !v)} className="rounded px-2 py-0.5 text-[11px] text-[var(--boss)] hover:bg-[var(--hover)]">
+            <button onClick={() => { setShowHint((v) => !v); setBossOpen(true); }} className="rounded px-2 py-0.5 text-[11px] text-[var(--boss)] hover:bg-[var(--hover)]">
               💡 ヒント
             </button>
           )}
-          <button onClick={() => setAsking((v) => !v)} className="rounded px-2 py-0.5 text-[11px] text-[var(--muted)] hover:bg-[var(--hover)]">
+          <button onClick={() => { setAsking((v) => !v); setBossOpen(true); }} className="rounded px-2 py-0.5 text-[11px] text-[var(--muted)] hover:bg-[var(--hover)]">
             質問する
           </button>
         </div>
       </div>
-      <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto text-[13px] leading-relaxed">
-        {boss.lines.map((l, i) => (
-          <p key={i}>{l}</p>
-        ))}
-      </div>
+      {bossOpen && (
+        <div className="mt-2 max-h-40 space-y-1.5 overflow-y-auto text-[13px] leading-relaxed">
+          {boss.lines.map((l, i) => (
+            <p key={i}>{l}</p>
+          ))}
+        </div>
+      )}
       {showHint && current && (
         <p className="mt-2 rounded bg-[var(--hover)] px-2 py-1 text-[12px] text-[var(--boss)]">💡 {repo.conflict ? STEPS[step].hintText(repo) : current.hintText(repo)}</p>
       )}
