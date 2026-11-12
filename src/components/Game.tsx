@@ -21,6 +21,7 @@ type MobileTab = "scm" | "term" | "graph";
 
 const TITLES = ["チーム開発アプリ", "はじめてのハッカソン", "🚀 チーム開発アプリ", "🚀 はじめてのハッカソン"];
 const ZUKAN_KEY = "jiko-zukan-v1";
+const ALL_ACCIDENTS = Object.keys(ACCIDENTS) as AccidentId[];
 const REPO_URL = "github.com/team/hackathon-app";
 
 function loadZukan(): AccidentId[] {
@@ -86,6 +87,8 @@ export default function Game() {
   const [thinking, setThinking] = useState(false);
   const [mobileTab, setMobileTab] = useState<MobileTab>("scm");
   const [bossOpen, setBossOpen] = useState(true);
+  const [zukanOpen, setZukanOpen] = useState(false);
+  const [zukan, setZukan] = useState<AccidentId[]>([]);
   const timers = useRef<number[]>([]);
   const queueEnd = useRef(0);
   const started = useRef(false);
@@ -110,6 +113,7 @@ export default function Game() {
     if (started.current) return;
     started.current = true;
     speak(STEPS[0].intro);
+    setZukan(loadZukan());
   }, []);
 
   useEffect(() => {
@@ -119,7 +123,10 @@ export default function Game() {
   const addAccident = (id: AccidentId) => {
     setAccidents((a) => (a.includes(id) ? a : [...a, id]));
     const z = loadZukan();
-    if (!z.includes(id)) saveZukan([...z, id]);
+    if (!z.includes(id)) {
+      saveZukan([...z, id]);
+      setZukan([...z, id]);
+    }
   };
 
   const log = (cmd: string, out: string, ok: boolean) =>
@@ -562,18 +569,21 @@ export default function Game() {
     <div className="flex h-dvh flex-col bg-[var(--bg)] text-[var(--ink)]">
       {/* タイトルバー */}
       <header className="flex items-center gap-3 border-b border-[var(--line)] bg-[var(--bar)] px-3 py-1.5">
-        <div className="flex gap-1.5">
+        <div className="hidden gap-1.5 sm:flex">
           <span className="h-3 w-3 rounded-full bg-[#ff5f57]" />
           <span className="h-3 w-3 rounded-full bg-[#febc2e]" />
           <span className="h-3 w-3 rounded-full bg-[#28c840]" />
         </div>
         <p className="min-w-0 truncate text-[12px]">
-          <span className="text-[var(--muted)]">練習試合（仮）—</span> {current ? `${step + 1}/${STEPS.length} ${current.label}` : "試合終了"}
+          <span className="hidden text-[var(--muted)] sm:inline">練習試合（仮）— </span>{current ? `${step + 1}/${STEPS.length} ${current.label}` : "試合終了"}
         </p>
         <div className="ml-auto hidden h-1.5 w-40 overflow-hidden rounded bg-[var(--line)] sm:block">
           <div className="h-full bg-[var(--you)] transition-all duration-500" style={{ width: `${(Math.min(step, STEPS.length) / STEPS.length) * 100}%` }} />
         </div>
-        <button onClick={restart} className="ml-auto rounded border border-[var(--line)] px-2 py-0.5 text-[11px] sm:ml-0">
+        <button onClick={() => setZukanOpen(true)} aria-label="事故図鑑" className="ml-auto shrink-0 rounded border border-[var(--line)] px-2 py-0.5 text-[11px] sm:ml-0">
+          📖 <span className="hidden sm:inline">事故図鑑 </span>{zukan.length}/{ALL_ACCIDENTS.length}
+        </button>
+        <button onClick={restart} className="shrink-0 rounded border border-[var(--line)] px-2 py-0.5 text-[11px]">
           やり直す
         </button>
       </header>
@@ -657,6 +667,48 @@ export default function Game() {
 
       {StatusBar}
 
+      {/* 事故図鑑 */}
+      {zukanOpen && (
+        <div className="fixed inset-0 z-40 overflow-y-auto bg-black/60 p-4" onClick={() => setZukanOpen(false)}>
+          <div className="mx-auto max-w-2xl rounded-lg border border-[var(--line)] bg-[var(--bg)] p-5" onClick={(e) => e.stopPropagation()}>
+            <div className="flex items-center">
+              <div>
+                <h2 className="text-lg font-bold">📖 事故図鑑</h2>
+                <p className="text-[12px] text-[var(--muted)]">
+                  練習で起こした事故が集まります（{zukan.length}/{ALL_ACCIDENTS.length}）。本番で同じ事故が起きても、もう大丈夫。
+                </p>
+              </div>
+              <button onClick={() => setZukanOpen(false)} className="ml-auto self-start rounded px-2 text-[var(--muted)] hover:bg-[var(--hover)]">
+                ✕
+              </button>
+            </div>
+            <div className="mt-2 h-1.5 overflow-hidden rounded bg-[var(--line)]">
+              <div className="h-full bg-[var(--boss)]" style={{ width: `${(zukan.length / ALL_ACCIDENTS.length) * 100}%` }} />
+            </div>
+            <div className="mt-4 grid gap-3 sm:grid-cols-2">
+              {ALL_ACCIDENTS.map((id, n) =>
+                zukan.includes(id) ? (
+                  <div key={id} className="rounded-lg border border-[var(--boss)]/60 bg-[var(--side)] p-4">
+                    <p className="text-[11px] text-[var(--boss)]">No.{String(n + 1).padStart(2, "0")}</p>
+                    <p className="font-bold">{ACCIDENTS[id].title}</p>
+                    <p className="mt-2 text-[13px] leading-relaxed">{ACCIDENTS[id].lesson}</p>
+                    <p className="mt-2 rounded bg-[var(--hover)] px-2 py-1 text-[12px] text-[var(--muted)]">VS Codeなら：{ACCIDENTS[id].vscode}</p>
+                  </div>
+                ) : (
+                  <div key={id} className="grid min-h-32 place-items-center rounded-lg border border-dashed border-[var(--line)] p-4 text-center">
+                    <div>
+                      <p className="text-[11px] text-[var(--muted)]">No.{String(n + 1).padStart(2, "0")}</p>
+                      <p className="text-2xl text-[var(--muted)]">？？？</p>
+                      <p className="text-[11px] text-[var(--muted)]">試合で出会うと登録されます</p>
+                    </div>
+                  </div>
+                ),
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* 試合終了 */}
       {finished && (
         <div className="fixed inset-0 z-30 overflow-y-auto bg-[var(--bg)] p-6">
@@ -681,6 +733,9 @@ export default function Game() {
             </div>
             <button onClick={restart} className="mt-6 w-full rounded bg-[var(--accent)] py-3 font-bold text-white">
               もう一回練習する
+            </button>
+            <button onClick={() => setZukanOpen(true)} className="mt-2 w-full rounded border border-[var(--line)] py-3 text-sm">
+              📖 事故図鑑を見る（{zukan.length}/{ALL_ACCIDENTS.length}）
             </button>
           </div>
         </div>
