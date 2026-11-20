@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { addHintView, addMistake, newPlayLog, weakSpots, type WeakSpot } from "@/lib/coach";
+import { appendPlayLog } from "@/lib/coachStore";
 import * as G from "@/lib/git";
 import { gitOutput } from "@/lib/gitOutput";
 import { BRANCH_NAME, STEPS, type AccidentId } from "@/lib/scenario";
@@ -41,6 +43,8 @@ export default function Game() {
   const [bossOpen, setBossOpen] = useState(true);
   const [zukanOpen, setZukanOpen] = useState(false);
   const [zukan, setZukan] = useState<AccidentId[]>([]);
+  const [weak, setWeak] = useState<WeakSpot[]>([]);
+  const playLog = useRef(newPlayLog(0)); // 今の試合のミスとヒントの記録（苦手の判定に使う）
   const timers = useRef<number[]>([]);
   const queueEnd = useRef(0);
   const started = useRef(false);
@@ -84,6 +88,7 @@ export default function Game() {
     log(res.command, gitOutput(key, repo, res), res.ok);
     setShowHint(false);
     if (!res.ok) {
+      if (STEPS[step]) playLog.current = addMistake(playLog.current, STEPS[step].id, key);
       speak([res.error], "warn", 0);
       return;
     }
@@ -116,6 +121,8 @@ export default function Game() {
           "マージ完了！ おつかれさま！！",
           "Issue、ブランチ、commit、push、PR、レビュー対応、コンフリクト、取り消し、マージ。チーム開発を1周できたよ。",
         );
+        // 試合の記録を保存して、苦手を判定する（判定はコード。AIには任せない）
+        setWeak(weakSpots(appendPlayLog(playLog.current)));
         window.setTimeout(() => setFinished(true), 700 * lines.length + 600);
         fetchFinalWord(r);
       } else {
@@ -206,6 +213,8 @@ export default function Game() {
     setAccidents([]);
     setFinished(false);
     setFinalWord(null);
+    setWeak([]);
+    playLog.current = newPlayLog(0);
     setShowHint(false);
     setEditOpen(false);
     setCommitMsg("");
@@ -245,6 +254,7 @@ export default function Game() {
       hintText={current ? current.hintText(repo) : null}
       showHint={showHint}
       toggleHint={() => {
+        if (!showHint && current) playLog.current = addHintView(playLog.current, current.id);
         setShowHint((v) => !v);
         setBossOpen(true);
       }}
@@ -368,6 +378,7 @@ export default function Game() {
         <FinishScreen
           accidents={accidents}
           finalWord={finalWord}
+          weak={weak}
           zukanCount={zukan.length}
           onRestart={restart}
           onOpenZukan={() => setZukanOpen(true)}

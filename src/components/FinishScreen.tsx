@@ -1,5 +1,6 @@
 "use client";
 
+import { coachComment, type WeakSpot } from "@/lib/coach";
 import { ACCIDENTS, type AccidentId } from "@/lib/scenario";
 import { ALL_ACCIDENTS } from "@/lib/zukan";
 
@@ -7,12 +8,14 @@ import { ALL_ACCIDENTS } from "@/lib/zukan";
 export default function FinishScreen({
   accidents,
   finalWord,
+  weak,
   zukanCount,
   onRestart,
   onOpenZukan,
 }: {
   accidents: AccidentId[];
   finalWord: string | null;
+  weak: WeakSpot[]; // 苦手なところ（苦手な順）。空なら表示しない
   zukanCount: number;
   onRestart: () => void;
   onOpenZukan: () => void;
@@ -38,6 +41,19 @@ export default function FinishScreen({
             </div>
           ))}
         </div>
+        {weak.length > 0 && (
+          <>
+            <h3 className="mt-6 text-sm font-bold">次の練習で見直したいところ</h3>
+            <div className="mt-2 grid gap-3">
+              {weak.slice(0, 2).map((w) => (
+                <div key={w.stepId} className="rounded-lg border border-[var(--boss)]/60 bg-[var(--side)] p-4">
+                  <p className="font-bold">🎯 {w.label}</p>
+                  <p className="mt-1 text-sm">{coachComment(w)}</p>
+                </div>
+              ))}
+            </div>
+          </>
+        )}
         <button onClick={onRestart} className="mt-6 w-full rounded bg-[var(--accent)] py-3 font-bold text-white">
           もう一回練習する
         </button>
