@@ -5,12 +5,20 @@ const PLAYLOG_KEY = "play-logs-v1";
 const MAX_LOGS = 10;
 
 const isNum = (v: unknown): v is number => typeof v === "number" && Number.isFinite(v);
+const isCount = (v: unknown): v is number => isNum(v) && v >= 0;
+
+// 操作別のミス回数：オブジェクトで、値がすべて0以上の数
+function isErrorActions(v: unknown): boolean {
+  if (v === undefined) return true;
+  if (!v || typeof v !== "object" || Array.isArray(v)) return false;
+  return Object.values(v).every(isCount);
+}
 
 // 壊れたデータ・古い形のデータを読んでも落ちないよう、形を確かめる
 function isStepLog(v: unknown): v is StepLog {
   if (!v || typeof v !== "object") return false;
   const s = v as Partial<StepLog>;
-  return typeof s.stepId === "string" && isNum(s.errors) && isNum(s.hints);
+  return typeof s.stepId === "string" && isCount(s.errors) && isCount(s.hints) && isErrorActions(s.errorActions);
 }
 
 function isPlayLog(v: unknown): v is PlayLog {

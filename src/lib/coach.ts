@@ -100,8 +100,24 @@ const STEP_TO_ACCIDENT: Record<string, AccidentId> = {
 
 const FALLBACK_ACCIDENT: AccidentId = "review";
 
-const stepLabel = (stepId: string) =>
-  STEPS.find((s) => s.id === stepId)?.label ?? stepId;
+// 利用者に見せる名前。専門用語は「言い換え（正式名）」の順で書く
+// （scenario.ts の label は進捗バー用の短い名前なので、そのままは使わない）
+const DISPLAY_LABEL: Record<string, string> = {
+  issue: "仕事を受けて、ブランチを作る",
+  edit: "ファイルの編集",
+  add: "ステージに乗せる（add）",
+  commit: "記録を確定する（commit）",
+  push: "GitHubに送る（push）",
+  pr: "確認をお願いする（PR）",
+  review: "レビューで頼まれた修正",
+  conflict: "ぶつかった場所を直す（コンフリクト）",
+  oops: "まちがえてpushしたとき",
+  revert: "取り消す（revert）",
+  merge: "mainに合流させる（マージ）",
+};
+
+const isKnownStep = (stepId: string) => STEPS.some((s) => s.id === stepId);
+const stepLabel = (stepId: string) => DISPLAY_LABEL[stepId] ?? STEPS.find((s) => s.id === stepId)?.label ?? stepId;
 
 // 記録から苦手なステップを、苦手な順（点数の高い順）に返す。
 // logs は古い順・新しい順どちらでもよい（playedAt で並べ替える）。
@@ -138,7 +154,8 @@ export function weakSpots(logs: PlayLog[]): WeakSpot[] {
   };
 
   return [...stats.entries()]
-    .filter(([, st]) => st.score >= WEAK_THRESHOLD)
+    // 今のシナリオにないステップ（古い記録）は無視する
+    .filter(([stepId, st]) => isKnownStep(stepId) && st.score >= WEAK_THRESHOLD)
     .map(([stepId, st]): WeakSpot => {
       const worst = [...st.actions.entries()].sort((a, b) => b[1] - a[1])[0];
       return {
@@ -196,13 +213,14 @@ export function pickPracticeAccidents(
 
 // ---- 表示用のひとこと（上司ひらたさんの口調。怒らず、理由を添える） ----
 
-// 苦手のステップを、やさしい日本語で説明する
+// 苦手のステップを、やさしい日本語で説明する。
+// 回数は直近の練習の合計（今回だけではない）なので、「これまでの練習で」と書く。
 export function coachComment(spot: WeakSpot): string {
   const detail =
     spot.errors > 0 && spot.hints > 0
-      ? `${spot.errors}回つまずいて、ヒントも${spot.hints}回使っていたね`
+      ? `${spot.errors}回つまずいて、ヒントも${spot.hints}回使っていたよ`
       : spot.errors > 0
-        ? `${spot.errors}回つまずいていたね`
-        : `ヒントを${spot.hints}回使っていたね`;
-  return `「${spot.label}」のところで${detail}。ここは慣れるまで誰でも迷う場所だから、次の試合で一緒にもう一度やってみよう。`;
+        ? `${spot.errors}回つまずいていたよ`
+        : `ヒントを${spot.hints}回使っていたよ`;
+  return `「${spot.label}」は、これまでの練習で${detail}。ここは慣れるまで誰でも迷う場所だから、また練習して、少しずつ慣れていこう。`;
 }

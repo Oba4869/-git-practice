@@ -46,6 +46,8 @@ export default function Game() {
   const [weak, setWeak] = useState<WeakSpot[]>([]);
   const playLog = useRef(newPlayLog(0)); // 今の試合のミスとヒントの記録（苦手の判定に使う）
   const timers = useRef<number[]>([]);
+  const finishTimer = useRef<number | null>(null); // 試合終了画面を出すタイマー（やり直しで消す）
+  const matchId = useRef(0); // 試合の番号。やり直すと増え、古い試合のAI返答を捨てるのに使う
   const queueEnd = useRef(0);
   const started = useRef(false);
 
@@ -123,7 +125,7 @@ export default function Game() {
         );
         // 試合の記録を保存して、苦手を判定する（判定はコード。AIには任せない）
         setWeak(weakSpots(appendPlayLog(playLog.current)));
-        window.setTimeout(() => setFinished(true), 700 * lines.length + 600);
+        finishTimer.current = window.setTimeout(() => setFinished(true), 700 * lines.length + 600);
         fetchFinalWord(r);
       } else {
         lines.push(...STEPS[i].intro);
@@ -188,6 +190,7 @@ export default function Game() {
   };
 
   const fetchFinalWord = async (r: G.Repo) => {
+    const id = matchId.current;
     try {
       const res = await fetch("/api/boss", {
         method: "POST",
@@ -200,13 +203,17 @@ export default function Game() {
         }),
       });
       const data = await res.json();
-      if (!data.offline && !data.error) setFinalWord(data.reply);
+      // 返事を待っている間にやり直された場合は、古い試合のひとことなので捨てる
+      if (id === matchId.current && !data.offline && !data.error) setFinalWord(data.reply);
     } catch {
       /* 一言がなくても終了画面は出す */
     }
   };
 
   const restart = () => {
+    matchId.current += 1;
+    if (finishTimer.current !== null) window.clearTimeout(finishTimer.current);
+    finishTimer.current = null;
     setRepo(G.initRepo());
     setStep(0);
     setTerm([]);

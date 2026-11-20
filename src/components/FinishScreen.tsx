@@ -54,12 +54,15 @@ export default function FinishScreen({
             </div>
           </>
         )}
-        <button onClick={onRestart} className="mt-6 w-full rounded bg-[var(--accent)] py-3 font-bold text-white">
-          もう一回練習する
-        </button>
-        <button onClick={onOpenZukan} className="mt-2 w-full rounded border border-[var(--line)] py-3 text-sm">
-          📖 事故図鑑を見る（{zukanCount}/{ALL_ACCIDENTS.length}）
-        </button>
+        {/* ボタンは画面の下に固定。カードが増えても、親指で届く */}
+        <div className="sticky bottom-0 -mx-6 mt-6 border-t border-[var(--line)] bg-[var(--bg)] px-6 pb-4 pt-3">
+          <button onClick={onRestart} className="w-full rounded bg-[var(--accent)] py-3 font-bold text-white">
+            もう一回練習する
+          </button>
+          <button onClick={onOpenZukan} className="mt-2 w-full rounded border border-[var(--line)] py-3 text-sm">
+            📖 事故図鑑を見る（{zukanCount}/{ALL_ACCIDENTS.length}）
+          </button>
+        </div>
       </div>
     </div>
   );

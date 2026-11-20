@@ -30,7 +30,12 @@ APIキーは、さくらのクラウドのコントロールパネルで「さ�
 | --- | --- |
 | `src/lib/git.ts` | 練習用の簡易Gitエンジン（1ファイルだけ扱う。本物のGitの前提条件とエラーを再現） |
 | `src/lib/scenario.ts` | 1試合のシナリオ。進行は「操作」ではなく「状態」で判定する |
-| `src/components/Game.tsx` | 画面全体（ソース管理・エディタ・ターミナル・上司・ステータスバー） |
+| `src/lib/coach.ts` / `coachStore.ts` | 苦手を狙うコーチ機能。ミスとヒントの記録から苦手を判定（コードで行う）し、記録をlocalStorageに保存 |
+| `src/lib/gitOutput.ts` / `view.ts` / `zukan.ts` | gitっぽい出力の文字列、画面用の派生値、事故図鑑の保存 |
+| `src/components/Game.tsx` | 画面の状態と配置（PC・スマホの切り替え）だけを持つ |
+| `src/components/SourceControl.tsx` / `Editor.tsx` / `Terminal.tsx` / `BossCard.tsx` / `StatusBar.tsx` | 画面の部品（ソース管理・エディタ・ターミナル・上司・ステータスバー） |
+| `src/components/ZukanModal.tsx` / `FinishScreen.tsx` | 事故図鑑と試合終了画面 |
+| `scripts/compare-models.mjs` | 上司AIのモデル比較（`SAKURA_AI_API_KEY` が必要） |
 | `src/components/AreasView.tsx` | 作業場 → ステージ → PCの履歴 → GitHub の図 |
 | `src/components/TreeView.tsx` | コミットツリーのSVG |
 | `src/app/api/boss/route.ts` | 上司AI（さくらのAI Engine、OpenAI互換）。APIキーはサーバー側だけで使う |
@@ -50,5 +55,7 @@ PORT=3000 npm start   # pm2 などで常駐させ、nginxでHTTPS化
 ## 次にやること
 - [ ] アプリ名と上司のキャラ（名前・見た目）を決める
 - [ ] 実際のAPIキーでモデルを比較（PLaMo 3.0 Prime / Kimi-K2.7-Code / gemma-4-31B-it / Qwen3.6-35B-A3B）
-- [ ] 事故図鑑の画面（今は試合終了画面にだけ表示。localStorageに保存済み）
-- [ ] 苦手を狙うコーチ機能、ターミナル式モード、本物のGitHub連携
+- [x] 事故図鑑の画面
+- [ ] コーチ機能：今は終了画面に「見直したいところ」を出すだけ。次の試合の事故の選び方への反映は未実装（`pickPracticeAccidents` はまだ使っていない）
+- [ ] 公開前に `/api/boss` へ回数制限（IPごと）を入れる
+- [ ] ターミナル式モード、本物のGitHub連携

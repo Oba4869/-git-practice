@@ -7,7 +7,9 @@ export const ALL_ACCIDENTS = Object.keys(ACCIDENTS) as AccidentId[];
 
 export function loadZukan(): AccidentId[] {
   try {
-    return JSON.parse(localStorage.getItem(ZUKAN_KEY) ?? "[]");
+    const raw = JSON.parse(localStorage.getItem(ZUKAN_KEY) ?? "[]");
+    // 壊れたデータでも落ちないよう、配列で、今ある事故のIDだけを残す
+    return Array.isArray(raw) ? raw.filter((id): id is AccidentId => ALL_ACCIDENTS.includes(id)) : [];
   } catch {
     return [];
   }
