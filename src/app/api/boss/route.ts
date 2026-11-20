@@ -1,4 +1,5 @@
 import OpenAI from "openai";
+import { checkRateLimit, clientIp } from "@/lib/rateLimit";
 
 // 上司AI（さくらのAI Engine）を呼ぶAPI。
 // APIキーはサーバー側だけで使い、ブラウザには出さない。
@@ -6,6 +7,7 @@ import OpenAI from "openai";
 // 失敗したときは必ず「決まったセリフ」を返す（HTTPは常に200）。
 //   - キーなし        → offline: true
 //   - APIエラー・タイムアウト・空の返答 → error: true
+//   - 回数の上限（IPごと・1日全体）を超えた → error: true、limited: true
 // 画面側は offline / error のときに「試合後のひとこと」を出さないので、
 // このフラグは外さないこと。
 
@@ -21,6 +23,8 @@ const FALLBACK = {
   error: "ごめん、今ちょっと通信の調子が悪いみたい。少ししてからもう一回聞いてね。",
   empty: "ごめん、うまく考えがまとまらなかった。もう一回聞いてくれる？",
   badRequest: "ごめん、質問がうまく届かなかったみたい。もう一回送ってくれる？",
+  limitedIp: "たくさん聞いてくれてうれしい！ ちょっと休憩させて。10分くらいしたら、また聞いてね。それまでは、ヒントのボタンも使えるよ。",
+  limitedDaily: "今日はたくさんの人に教えていて、ちょっと疲れちゃった…。また明日聞いてね。それまでは、ヒントのボタンで進められるよ。",
 } as const;
 
 const SYSTEM_PROMPT = `あなたは、ハッカソン初参加の学生と一緒にチーム開発の「練習試合」をしている、理想の上司「ひらたさん」です。相手はGit/GitHubをほぼ知らない初心者です。
@@ -89,7 +93,14 @@ export async function POST(request: Request) {
     return Response.json({ reply: FALLBACK.offline, offline: true });
   }
 
-  // 3) AIに聞く。失敗・時間切れ・空の返答は、すべて決まったセリフにする
+  // 3) 使いすぎ防止。AIを呼ぶときだけ数える（キーなしの決まったセリフは数えない）
+  const limit = checkRateLimit(clientIp(request));
+  if (!limit.ok) {
+    const reply = limit.reason === "ip" ? FALLBACK.limitedIp : FALLBACK.limitedDaily;
+    return Response.json({ reply, error: true, limited: true });
+  }
+
+  // 4) AIに聞く。失敗・時間切れ・空の返答は、すべて決まったセリフにする
   try {
     // maxRetries: 0 … 再試行で待ち時間が伸びないようにする
     const client = new OpenAI({ apiKey, baseURL: BASE_URL, timeout: TIMEOUT_MS, maxRetries: 0 });

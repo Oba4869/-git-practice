@@ -31,6 +31,7 @@ APIキーは、さくらのクラウドのコントロールパネルで「さ�
 | `src/lib/git.ts` | 練習用の簡易Gitエンジン（1ファイルだけ扱う。本物のGitの前提条件とエラーを再現） |
 | `src/lib/scenario.ts` | 1試合のシナリオ。進行は「操作」ではなく「状態」で判定する |
 | `src/lib/coach.ts` / `coachStore.ts` | 苦手を狙うコーチ機能。ミスとヒントの記録から苦手を判定（コードで行う）し、記録をlocalStorageに保存 |
+| `src/lib/rateLimit.ts` | `/api/boss` の使いすぎ防止（メモリ内で数える。1台のVPSで常駐させる前提） |
 | `src/lib/gitOutput.ts` / `view.ts` / `zukan.ts` | gitっぽい出力の文字列、画面用の派生値、事故図鑑の保存 |
 | `src/components/Game.tsx` | 画面の状態と配置（PC・スマホの切り替え）だけを持つ |
 | `src/components/SourceControl.tsx` / `Editor.tsx` / `Terminal.tsx` / `BossCard.tsx` / `StatusBar.tsx` | 画面の部品（ソース管理・エディタ・ターミナル・上司・ステータスバー） |
@@ -57,5 +58,5 @@ PORT=3000 npm start   # pm2 などで常駐させ、nginxでHTTPS化
 - [ ] 実際のAPIキーでモデルを比較（PLaMo 3.0 Prime / Kimi-K2.7-Code / gemma-4-31B-it / Qwen3.6-35B-A3B）
 - [x] 事故図鑑の画面
 - [ ] コーチ機能：今は終了画面に「見直したいところ」を出すだけ。次の試合の事故の選び方への反映は未実装（`pickPracticeAccidents` はまだ使っていない）
-- [ ] 公開前に `/api/boss` へ回数制限（IPごと）を入れる
+- [x] `/api/boss` の回数制限（IPごとに10分20回、全体で1日600回。`BOSS_IP_LIMIT` / `BOSS_DAILY_LIMIT` で変更可）。公開時はnginxで `X-Forwarded-For` を付けること
 - [ ] ターミナル式モード、本物のGitHub連携
